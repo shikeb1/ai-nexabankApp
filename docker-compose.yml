@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  # 1. DATABASE: Financial storage
+  db:
+    image: postgres:15-alpine
+    container_name: bank-db
+    environment:
+      - POSTGRES_USER=nexabank_user
+      - POSTGRES_PASSWORD=password
+      - POSTGRES_DB=nexabank
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U nexabank_user -d nexabank" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - nexabank-network
+
+  # 2. AI: Local LLM service
+  ollama:
+    build: ./ollama
+    container_name: ollama-bank
+    ports:
+      - "11435:11434"
+    networks:
+      - nexabank-network
+
+  # 3. BACKEND: Python API logic
+  backend:
+    build: ./backend
+    container_name: bank-backend
+    ports:
+      - "5000:5000"
+    environment:
+      - DATABASE_URL=postgresql://nexabank_user:password@db:5432/nexabank
+      - OLLAMA_URL=http://ollama:11434/api/generate
+    depends_on:
+      db:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    networks:
+      - nexabank-network
+
+  # 4. FRONTEND: Web User Interface
+  frontend:
+    build: ./frontend
+    container_name: bank-frontend
+    ports:
+      - "8000:8080"
+    depends_on:
+      - backend
+    networks:
+      - nexabank-network
+
+networks:
+  nexabank-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
