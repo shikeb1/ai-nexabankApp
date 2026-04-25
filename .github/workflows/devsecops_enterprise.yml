@@ -1,0 +1,108 @@
+name: NexaBank DevSecOps
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+# Concurrency: Ensures only one enterprise build runs at a time for safety
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  security-events: write # Needed for GitHub Security Tab integration
+
+jobs:
+  # ==============================================================
+  # PHASE 1: SAST & SECRETS (Static Code Scanning)
+  # ==============================================================
+  static-security:
+    name: " Static Analysis (SAST)"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Industry Standard: Gitleaks (Scanning for leaked API keys/passwords)
+      - name: Gitleaks (Secret Scan)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # SAST for Python logic
+      - name: Bandit (Python Security)
+        run: |
+          pip install bandit
+          bandit -r ./backend -ll -ii
+
+      # Code Styling & Best Practices
+      - name: Flake8 (Linting)
+        run: |
+          pip install flake8
+          flake8 ./backend --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  # ==============================================================
+  # PHASE 2: CONTAINER HARDENING (Build & Infrastructure Scan)
+  # ==============================================================
+  container-hardening:
+    name: "Container Hardening"
+    needs: static-security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build and Scan Backend
+      - name: Build Backend
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          load: true
+          tags: nexabank-backend:audit
+
+      - name: Scan Backend (Trivy CRITICAL Check)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: 'nexabank-backend:audit'
+          format: 'table'
+          # Exit code 1 means FAIL the build if CRITICAL vulnerabilities exist
+          exit-code: '1' 
+          ignore-unfixed: true
+          severity: 'CRITICAL'
+
+  # ==============================================================
+  # PHASE 3: DAST & PUBLISH (Dynamic Analysis & Shipping)
+  # ==============================================================
+  ship-and-verify:
+    name: " Ship & Verify"
+    needs: container-hardening
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Push Enterprise Images
+        run: |
+          # Professional Tagging (latest + short sha)
+          SHA=$(git rev-parse --short HEAD)
+          for svc in backend frontend ollama; do
+            docker build -t ${{ secrets.DOCKER_USERNAME }}/nexabank-$svc:latest ./$svc
+            docker build -t ${{ secrets.DOCKER_USERNAME }}/nexabank-$svc:$SHA ./$svc
+            docker push ${{ secrets.DOCKER_USERNAME }}/nexabank-$svc:latest
+            docker push ${{ secrets.DOCKER_USERNAME }}/nexabank-$svc:$SHA
+          done
