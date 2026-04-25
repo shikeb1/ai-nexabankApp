@@ -1,0 +1,50 @@
+# Kubernetes & Large Tooling
+kubectl
+minikube
+minikube-linux-amd64
+*.exe
+*.img
+*.iso
+*.iso.sha256
+
+# Python (Backend) Logic
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+venv/
+ENV/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Node.js (Frontend) UI
+node_modules/
+dist/
+build/
+.eslintcache
+.stylelintcache
+node_modules.zip
+
+# Databases & Persistence
+*.db
+*.sqlite3
+nexabank.db
+/postgres_data/
+
+# Secrets & Local Environment
+.env
+.env.local
+.env.*.local
+secret.yaml
+*.pem
+*.key
+
+# OS & Editor Junk
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
