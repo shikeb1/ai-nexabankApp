@@ -1,14 +1,15 @@
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 
-# SQLite for local dev — in production (K8s), swap to PostgreSQL via env var
-DATABASE_URL = "sqlite:///./nexabank.db"
+# Read DATABASE_URL from environment (PostgreSQL in K8s, SQLite locally)
+DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./nexabank.db")
 
-engine = create_engine(
-    DATABASE_URL,
-    connect_args={"check_same_thread": False}  # SQLite-specific
-)
+# SQLite needs special args; PostgreSQL does not
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()

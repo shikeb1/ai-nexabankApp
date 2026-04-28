@@ -1,9 +1,10 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from database import engine, Base
 from routes import accounts, transactions, ai_advisor
 
-# Create all tables
+# Create all tables on startup
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI(
@@ -12,14 +13,19 @@ app = FastAPI(
     version="1.0.0"
 )
 
-import os
+# CORS — allow all localhost ports so frontend works on any mapped port
+# FRONTEND_URL env var is injected by Kubernetes ConfigMap
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:8088")
 
-# CORS — allows React frontend to talk to this backend
 allowed_origins = [
     "http://localhost:3000",
     "http://localhost:8000",
-    os.getenv("FRONTEND_URL", "http://localhost:8000")
+    "http://localhost:8080",
+    "http://localhost:8088",
+    FRONTEND_URL,
 ]
+# Deduplicate
+allowed_origins = list(set(allowed_origins))
 
 app.add_middleware(
     CORSMiddleware,

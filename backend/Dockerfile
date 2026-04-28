@@ -41,11 +41,11 @@ RUN adduser --disabled-password --gecos "" appuser && \
 USER appuser
 
 # MOVED TO 5000 to avoid conflict with Frontend
-EXPOSE 5000
+EXPOSE 5001
 
 # Updated healthcheck for Port 5000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:5000/health || exit 1
 
 # Start the application on Port 5000
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5000"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "5001"]
