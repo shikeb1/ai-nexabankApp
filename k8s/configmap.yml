@@ -1,0 +1,23 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nexabank-config
+  namespace: nexabank
+  labels:
+    app: nexabank
+data:
+  # Database Configuration
+  POSTGRES_DB: "nexabank"
+  POSTGRES_USER: "nexabank_user"
+  DB_HOST: "bank-db"
+  DB_PORT: "5432"
+  
+  # Application URLs
+  FRONTEND_URL: "http://bank-frontend:8080"
+  BACKEND_URL: "http://bank-backend:5001"
+  
+  # Logging
+  LOG_LEVEL: "INFO"
+  
+  # AI/Ollama Configuration
+  OLLAMA_URL: "http://ollama:11434/api/generate"
