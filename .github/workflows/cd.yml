@@ -1,0 +1,37 @@
+name: "CD - Publish to Docker Hub"
+
+on:
+  workflow_call:
+    inputs:
+      image_tag:
+        required: true
+        type: string
+
+jobs:
+  publish:
+    name: "Publish Images"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Tag Images as Latest
+        run: |
+          for svc in backend frontend ollama; do
+            docker pull ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:${{ inputs.image_tag }}
+            docker tag  ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:${{ inputs.image_tag }} \
+                        ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:latest
+            docker push ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:latest
+          done
+
+      - name: Print Summary
+        run: |
+          echo "Images published to Docker Hub:"
+          for svc in backend frontend ollama; do
+            echo "  - ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:latest"
+            echo "  - ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:${{ inputs.image_tag }}"
+          done

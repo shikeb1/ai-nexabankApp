@@ -1,0 +1,46 @@
+name: "NexaBank DevSecOps Pipeline"
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  setup:
+    name: "Setup"
+    runs-on: ubuntu-latest
+    outputs:
+      image_tag: ${{ steps.sha.outputs.short }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get Short SHA
+        id: sha
+        run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+  ci:
+    name: "Phase 1 - CI"
+    needs: setup
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  build:
+    name: "Phase 2 - Build"
+    needs: [setup, ci]
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    with:
+      image_tag: ${{ needs.setup.outputs.image_tag }}
+
+  cd:
+    name: "Phase 3 - CD"
+    needs: [setup, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/cd.yml
+    secrets: inherit
+    with:
+      image_tag: ${{ needs.setup.outputs.image_tag }}

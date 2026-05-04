@@ -1,0 +1,49 @@
+name: "CI - Code Quality & Security"
+
+on:
+  workflow_call:
+
+jobs:
+  ci:
+    name: "CI Checks"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Secret Scan (Gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Backend Dependencies
+        run: pip install -r ./backend/requirements.txt
+
+      - name: Python SAST (Bandit)
+        run: |
+          pip install bandit
+          bandit -r ./backend -ll -ii || true
+
+      - name: Python Dependency Audit (Safety)
+        run: |
+          pip install safety
+          safety check -r ./backend/requirements.txt || true
+
+      - name: Python Linting (Flake8)
+        run: |
+          pip install flake8
+          flake8 ./backend --count --select=E9,F63,F7,F82 --show-source --statistics
+
+      - name: Frontend Dependency Audit (npm audit)
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npm audit --audit-level=high || true
