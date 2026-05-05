@@ -13,7 +13,7 @@ permissions:
 jobs:
 
   # ============================================================
-  # GATE 8: DEPLOY - EC2 via SSH
+  # GATE 8: DEPLOY - EC2 via SSH + Docker Compose
   # ============================================================
   deploy:
     name: Deploy to EC2 via SSH
@@ -48,22 +48,24 @@ jobs:
           script: |
             cd ~/nexabank
 
-            # Write environment file
+            # Write .env file from GitHub Secrets
             echo "DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}"   > .env
             echo "IMAGE_TAG=${{ inputs.image_tag }}"               >> .env
             echo "SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}"     >> .env
             echo "DATABASE_URL=${{ secrets.DATABASE_URL }}"        >> .env
             echo "ALLOWED_HOSTS=${{ secrets.EC2_HOST }}"           >> .env
 
-            # Login to Docker Hub and pull latest images
-            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-            docker compose pull
+            # Login to Docker Hub
+            echo "${{ secrets.DOCKER_PASSWORD }}" | \
+              docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-            # Restart services
+            # Pull latest images and restart services
+            docker compose pull
             docker compose up -d --remove-orphans
 
   # ============================================================
   # GATE 9: DAST - OWASP ZAP Baseline Scan
+  # Runs against live app after deployment
   # ============================================================
   dast:
     name: DAST - OWASP ZAP Baseline Scan

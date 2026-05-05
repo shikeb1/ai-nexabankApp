@@ -30,7 +30,7 @@ jobs:
 
   # ============================================================
   # PHASE 1 — CI (Gates 1-4)
-  # Secret Scan → Lint → SAST → SCA
+  # Secret Scan → Lint → SAST & SCA (parallel)
   # ============================================================
   ci:
     name: Phase 1 - CI
