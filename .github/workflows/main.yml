@@ -1,4 +1,4 @@
-name: "NexaBank DevSecOps Pipeline"
+name: NexaBank DevSecOps Pipeline
 
 on:
   push:
@@ -11,33 +11,53 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+
+  # ============================================================
+  # SETUP: Generate shared image tag from commit SHA
+  # ============================================================
   setup:
-    name: "Setup"
+    name: Setup - Generate Image Tag
     runs-on: ubuntu-latest
     outputs:
       image_tag: ${{ steps.sha.outputs.short }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Get Short SHA
         id: sha
         run: echo "short=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
+  # ============================================================
+  # PHASE 1 — CI (Gates 1-4)
+  # Secret Scan → Lint → SAST → SCA
+  # ============================================================
   ci:
-    name: "Phase 1 - CI"
+    name: Phase 1 - CI
     needs: setup
     uses: ./.github/workflows/ci.yml
     secrets: inherit
 
+  # ============================================================
+  # PHASE 2 — BUILD (Gates 5-7)
+  # Build → Trivy Scan → Push to Docker Hub
+  # Runs only after CI passes
+  # ============================================================
   build:
-    name: "Phase 2 - Build"
+    name: Phase 2 - Build
     needs: [setup, ci]
     uses: ./.github/workflows/build.yml
     secrets: inherit
     with:
       image_tag: ${{ needs.setup.outputs.image_tag }}
 
+  # ============================================================
+  # PHASE 3 — CD (Gates 8-9)
+  # Deploy to EC2 → OWASP ZAP DAST
+  # Runs only on push to main after Build passes
+  # ============================================================
   cd:
-    name: "Phase 3 - CD"
+    name: Phase 3 - CD
     needs: [setup, build]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     uses: ./.github/workflows/cd.yml

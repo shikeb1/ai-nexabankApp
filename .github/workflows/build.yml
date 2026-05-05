@@ -1,4 +1,4 @@
-name: "Build - Docker Build & Scan"
+name: Build - Container Build & Push
 
 on:
   workflow_call:
@@ -7,14 +7,20 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
+
+  # ============================================================
+  # GATE 5: BUILD - Docker Images
+  # ============================================================
   build:
-    name: "Build & Scan - ${{ matrix.service }}"
+    name: Build Docker Images
     runs-on: ubuntu-latest
     strategy:
       matrix:
         service: [backend, frontend, ollama]
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -22,27 +28,74 @@ jobs:
       - name: Set Up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
+      - name: Build Docker Image
+        run: |
+          docker build -t nexabank-${{ matrix.service }}:${{ inputs.image_tag }} ./${{ matrix.service }}
+
+  # ============================================================
+  # GATE 6: CONTAINER IMAGE SCAN - Trivy
+  # ============================================================
+  image_scan:
+    name: Container Scan - Trivy
+    runs-on: ubuntu-latest
+    needs: build
+    strategy:
+      matrix:
+        service: [backend, frontend, ollama]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Build Docker Image (for scanning)
+        run: docker build -t nexabank-${{ matrix.service }}:${{ inputs.image_tag }} ./${{ matrix.service }}
+
+      - name: Cache Trivy DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+
+      - name: Run Trivy Image Scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: nexabank-${{ matrix.service }}:${{ inputs.image_tag }}
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          output: trivy-${{ matrix.service }}-report.txt
+
+      - name: Upload Trivy Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-scan-${{ matrix.service }}
+          path: trivy-${{ matrix.service }}-report.txt
+
+  # ============================================================
+  # GATE 7: PUSH TO DOCKER HUB
+  # ============================================================
+  push_to_hub:
+    name: Push to Docker Hub
+    runs-on: ubuntu-latest
+    needs: image_scan
+    strategy:
+      matrix:
+        service: [backend, frontend, ollama]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
       - name: Login to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build Docker Image
+      - name: Build, Tag, and Push Image
         run: |
-          docker build \
-            -t ${{ secrets.DOCKER_USERNAME }}/nexabank-${{ matrix.service }}:${{ inputs.image_tag }} \
-            ./${{ matrix.service }}
-
-      - name: Scan Image for Vulnerabilities (Trivy)
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: "${{ secrets.DOCKER_USERNAME }}/nexabank-${{ matrix.service }}:${{ inputs.image_tag }}"
-          format: "table"
-          exit-code: "1"
-          ignore-unfixed: true
-          severity: "CRITICAL"
-
-      - name: Push Image to Docker Hub
-        run: |
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/nexabank-${{ matrix.service }}:${{ inputs.image_tag }} ./${{ matrix.service }}
           docker push ${{ secrets.DOCKER_USERNAME }}/nexabank-${{ matrix.service }}:${{ inputs.image_tag }}

@@ -1,4 +1,4 @@
-name: "CD - Publish to Docker Hub"
+name: CD - Deploy & DAST
 
 on:
   workflow_call:
@@ -7,31 +7,81 @@ on:
         required: true
         type: string
 
+permissions:
+  contents: read
+
 jobs:
-  publish:
-    name: "Publish Images"
+
+  # ============================================================
+  # GATE 8: DEPLOY - EC2 via SSH
+  # ============================================================
+  deploy:
+    name: Deploy to EC2 via SSH
     runs-on: ubuntu-latest
-
     steps:
-      - name: Login to Docker Hub
-        uses: docker/login-action@v3
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Create Deployment Directory on EC2
+        uses: appleboy/ssh-action@master
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: mkdir -p ~/nexabank
 
-      - name: Tag Images as Latest
-        run: |
-          for svc in backend frontend ollama; do
-            docker pull ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:${{ inputs.image_tag }}
-            docker tag  ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:${{ inputs.image_tag }} \
-                        ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:latest
-            docker push ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:latest
-          done
+      - name: Copy docker-compose.yml to EC2
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.yml"
+          target: "~/nexabank"
 
-      - name: Print Summary
-        run: |
-          echo "Images published to Docker Hub:"
-          for svc in backend frontend ollama; do
-            echo "  - ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:latest"
-            echo "  - ${{ secrets.DOCKER_USERNAME }}/nexabank-${svc}:${{ inputs.image_tag }}"
-          done
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            cd ~/nexabank
+
+            # Write environment file
+            echo "DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}"   > .env
+            echo "IMAGE_TAG=${{ inputs.image_tag }}"               >> .env
+            echo "SECRET_KEY=${{ secrets.DJANGO_SECRET_KEY }}"     >> .env
+            echo "DATABASE_URL=${{ secrets.DATABASE_URL }}"        >> .env
+            echo "ALLOWED_HOSTS=${{ secrets.EC2_HOST }}"           >> .env
+
+            # Login to Docker Hub and pull latest images
+            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+            docker compose pull
+
+            # Restart services
+            docker compose up -d --remove-orphans
+
+  # ============================================================
+  # GATE 9: DAST - OWASP ZAP Baseline Scan
+  # ============================================================
+  dast:
+    name: DAST - OWASP ZAP Baseline Scan
+    runs-on: ubuntu-latest
+    needs: deploy
+    steps:
+      - name: Run OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.15.0
+        continue-on-error: true
+        with:
+          target: 'http://${{ secrets.EC2_HOST }}:8000'
+          artifact_name: zapreport
+          fail_action: false
+          allow_issue_writing: false
+
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: zap-dast-report
+          path: report_html.html

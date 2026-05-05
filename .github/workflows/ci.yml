@@ -1,48 +1,109 @@
-name: "CI - Code Quality & Security"
+name: CI - Security Scanning
 
 on:
   workflow_call:
 
-jobs:
-  ci:
-    name: "CI Checks"
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
+  security-events: write
 
+jobs:
+
+  # ============================================================
+  # GATE 1: SECRET SCANNING (Gitleaks)
+  # ============================================================
+  gitleaks:
+    name: Secret Scan - Gitleaks
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Secret Scan (Gitleaks)
+      - name: Run Gitleaks
         uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # ============================================================
+  # GATE 2: LINT - Flake8 (Python) + ESLint (Frontend)
+  # ============================================================
+  lint:
+    name: Lint - Flake8 & ESLint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set Up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
 
-      - name: Install Backend Dependencies
-        run: pip install -r ./backend/requirements.txt
-
-      - name: Python SAST (Bandit)
-        run: |
-          pip install bandit
-          bandit -r ./backend -ll -ii || true
-
-      - name: Python Dependency Audit (Safety)
-        run: |
-          pip install safety
-          safety check -r ./backend/requirements.txt || true
-
-      - name: Python Linting (Flake8)
+      - name: Run Flake8 (Backend)
         run: |
           pip install flake8
           flake8 ./backend --count --select=E9,F63,F7,F82 --show-source --statistics
 
-      - name: Frontend Dependency Audit (npm audit)
+      - name: Run ESLint (Frontend)
+        working-directory: ./frontend
+        run: |
+          npm ci
+          npx eslint . --ext .js,.jsx,.ts,.tsx || true
+
+  # ============================================================
+  # GATE 3: SAST - Bandit (Python Static Security)
+  # ============================================================
+  sast:
+    name: SAST - Bandit
+    runs-on: ubuntu-latest
+    needs: [gitleaks, lint]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Bandit SAST Scan
+        run: |
+          pip install bandit
+          bandit -r ./backend -ll -ii -f txt -o bandit-report.txt || true
+          cat bandit-report.txt
+
+      - name: Upload Bandit Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bandit-sast-report
+          path: bandit-report.txt
+
+  # ============================================================
+  # GATE 4: SCA - Dependency Vulnerability Audit
+  # ============================================================
+  sca:
+    name: SCA - Safety & npm audit
+    runs-on: ubuntu-latest
+    needs: [gitleaks, lint]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set Up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run Safety (Python Dependencies)
+        run: |
+          pip install safety
+          pip install -r ./backend/requirements.txt
+          safety check -r ./backend/requirements.txt --output text || true
+
+      - name: Run npm audit (Frontend Dependencies)
         working-directory: ./frontend
         run: |
           npm ci
